@@ -155,6 +155,26 @@ def save_alert(alert):
     except Exception as e:
         print(f"DB alert save error: {e}")
 
+def cleanup_old_records():
+    """Delete readings and alerts older than 30 days"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+        r = conn.execute("DELETE FROM readings WHERE timestamp < ?", (cutoff,)).rowcount
+        a = conn.execute("DELETE FROM alerts WHERE timestamp < ?", (cutoff,)).rowcount
+        conn.commit()
+        conn.close()
+        if r or a:
+            print(f"🧹 Cleaned up {r} readings, {a} alerts older than 30 days")
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+
+def cleanup_loop():
+    """Run cleanup every 6 hours"""
+    while True:
+        time.sleep(21600)
+        cleanup_old_records()
+
 def get_readings_from_db(limit=100):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -1214,6 +1234,98 @@ def get_alerts_db():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ============================================
+# CSV EXPORT
+# ============================================
+
+@app.route('/api/export/csv')
+def export_csv():
+    try:
+        limit = request.args.get('limit', 10000, type=int)
+        rows = get_readings_from_db(limit)
+        lines = ["timestamp,primary_current,primary_voltage,primary_power_kw,primary_pf,"
+                 "secondary_current,secondary_voltage,secondary_power_kw,secondary_pf,"
+                 "temperature,humidity,efficiency,fault_overcurrent,fault_overtemp,flame,"
+                 "health_status,health_confidence"]
+        for r in reversed(rows):
+            lines.append(
+                f"{r['timestamp']},{r['primary_current']},{r['primary_voltage']},"
+                f"{r['primary_power_kw']},{r['primary_pf']},{r['secondary_current']},"
+                f"{r['secondary_voltage']},{r['secondary_power_kw']},{r['secondary_pf']},"
+                f"{r['temperature']},{r['humidity']},{r['efficiency']},"
+                f"{r['fault_overcurrent']},{r['fault_overtemp']},{r['flame']},"
+                f"{r['health_status']},{r['health_confidence']}"
+            )
+        csv_str = "\n".join(lines)
+        return app.response_class(
+            csv_str,
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=transformer_data_{datetime.now().strftime("%Y%m%d")}.csv'}
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ============================================
+# AGGREGATED STATISTICS
+# ============================================
+
+def get_stats(group_by):
+    """group_by: 'daily', 'weekly', or 'monthly'"""
+    try:
+        if group_by == 'daily':
+            date_fmt = "%Y-%m-%d"
+            trunc = "substr(timestamp, 1, 10)"
+        elif group_by == 'weekly':
+            date_fmt = "%Y-%W"
+            trunc = "strftime('%Y-%W', timestamp)"
+        else:
+            date_fmt = "%Y-%m"
+            trunc = "substr(timestamp, 1, 7)"
+
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(f"""
+            SELECT
+                {trunc} as period,
+                COUNT(*) as count,
+                ROUND(AVG(temperature), 1) as temp_avg,
+                ROUND(MIN(temperature), 1) as temp_min,
+                ROUND(MAX(temperature), 1) as temp_max,
+                ROUND(AVG(primary_current), 1) as current_avg,
+                ROUND(MIN(primary_current), 1) as current_min,
+                ROUND(MAX(primary_current), 1) as current_max,
+                ROUND(AVG(humidity), 1) as humidity_avg,
+                ROUND(MIN(humidity), 1) as humidity_min,
+                ROUND(MAX(humidity), 1) as humidity_max,
+                ROUND(AVG(health_confidence), 1) as health_avg,
+                ROUND(AVG(efficiency), 1) as efficiency_avg
+            FROM readings
+            GROUP BY period
+            ORDER BY period DESC
+            LIMIT 90
+        """).fetchall()
+        conn.close()
+
+        cols = ['period','count','temp_avg','temp_min','temp_max',
+                'current_avg','current_min','current_max',
+                'humidity_avg','humidity_min','humidity_max',
+                'health_avg','efficiency_avg']
+        return [dict(zip(cols, r)) for r in rows]
+    except Exception as e:
+        print(f"Stats error: {e}")
+        return []
+
+@app.route('/api/stats/daily')
+def stats_daily():
+    return jsonify({'success': True, 'stats': get_stats('daily')})
+
+@app.route('/api/stats/weekly')
+def stats_weekly():
+    return jsonify({'success': True, 'stats': get_stats('weekly')})
+
+@app.route('/api/stats/monthly')
+def stats_monthly():
+    return jsonify({'success': True, 'stats': get_stats('monthly')})
+
+# ============================================
 # PDF REPORT GENERATION
 # ============================================
 
@@ -1462,6 +1574,9 @@ if __name__ == '__main__':
     print("   - High: 105-130°C")
     print("   - Critical: 130-180°C")
     init_db()
+    cleanup_old_records()
+    cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
+    cleanup_thread.start()
     print("\n📡 Mode: Receiving data from HARDWARE via HTTP endpoint")
     print("   POST sensor data to: /api/upload")
     
