@@ -17,6 +17,7 @@ import warnings
 import joblib
 import os
 import requests
+import sqlite3
 from tensorflow.keras.models import load_model
 
 warnings.filterwarnings('ignore')
@@ -31,6 +32,142 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+
+# ============================================
+# BIRD EMAIL ALERTS CONFIGURATION
+# ============================================
+
+BIRD_API_KEY = os.environ.get("BIRD_API_KEY", "bk_eu1_1rjPniF2y4qEF2JjyKIPCcW3eom4Q")
+BIRD_API_URL = "https://eu1.platform.bird.com/v1/email/messages"
+BIRD_FROM_EMAIL = os.environ.get("BIRD_FROM_EMAIL", "onboarding@messagebird.dev")
+ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "charleskasuba81@gmail.com")
+last_email_time = {}
+
+def send_email_alert(subject, body_html):
+    """Send alert email via Bird API with rate limiting"""
+    now = time.time()
+    key = subject[:30]
+    if key in last_email_time and now - last_email_time[key] < 300:
+        return
+    try:
+        resp = requests.post(
+            BIRD_API_URL,
+            headers={
+                "Authorization": f"Bearer {BIRD_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": BIRD_FROM_EMAIL,
+                "to": [ALERT_EMAIL_TO],
+                "subject": subject,
+                "html": body_html,
+            },
+            timeout=10,
+        )
+        last_email_time[key] = now
+        print(f"📧 Email alert sent ({resp.status_code}): {subject}")
+    except Exception as e:
+        print(f"📧 Email alert failed: {e}")
+
+# ============================================
+# SQLITE DATABASE
+# ============================================
+
+DB_PATH = os.environ.get("DB_PATH", "data.db")
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            primary_current REAL,
+            primary_voltage REAL,
+            primary_power_kw REAL,
+            primary_pf REAL,
+            secondary_current REAL,
+            secondary_voltage REAL,
+            secondary_power_kw REAL,
+            secondary_pf REAL,
+            temperature REAL,
+            humidity REAL,
+            efficiency REAL,
+            fault_overcurrent INTEGER,
+            fault_overtemp INTEGER,
+            flame INTEGER,
+            health_status TEXT,
+            health_confidence REAL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            type TEXT,
+            message TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_reading(data):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("""
+            INSERT INTO readings (
+                timestamp, primary_current, primary_voltage, primary_power_kw, primary_pf,
+                secondary_current, secondary_voltage, secondary_power_kw, secondary_pf,
+                temperature, humidity, efficiency,
+                fault_overcurrent, fault_overtemp, flame,
+                health_status, health_confidence
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+            data.get('primary_current', 0),
+            data.get('primary_voltage', 230),
+            data.get('primary_power_kw', 0),
+            data.get('primary_pf', 0.85),
+            data.get('secondary_current', 0),
+            data.get('secondary_voltage', 19),
+            data.get('secondary_power_kw', 0),
+            data.get('secondary_pf', 0.82),
+            data.get('temperature', 27),
+            data.get('humidity', 45),
+            data.get('efficiency', 85),
+            1 if data.get('fault_overcurrent', False) else 0,
+            1 if data.get('fault_overtemp', False) else 0,
+            1 if data.get('flame', False) else 0,
+            data.get('health_status', 'Healthy'),
+            data.get('health_confidence', 85)
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"DB save error: {e}")
+
+def save_alert(alert):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("INSERT INTO alerts (timestamp, type, message) VALUES (?,?,?)",
+                     (alert.get('timestamp', ''), alert.get('type', ''), alert.get('message', '')))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"DB alert save error: {e}")
+
+def get_readings_from_db(limit=100):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT * FROM readings ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        conn.close()
+        cols = ['id','timestamp','primary_current','primary_voltage','primary_power_kw','primary_pf',
+                'secondary_current','secondary_voltage','secondary_power_kw','secondary_pf',
+                'temperature','humidity','efficiency','fault_overcurrent','fault_overtemp',
+                'flame','health_status','health_confidence']
+        return [dict(zip(cols, r)) for r in rows]
+    except Exception as e:
+        print(f"DB read error: {e}")
+        return []
 
 # ============================================
 # LOAD TRAINED CNN MODEL
@@ -684,6 +821,7 @@ class TransformerMonitor:
             self.generate_recommendations()
             self.check_alerts()
             self.data_history.append(self.current_data.copy())
+            save_reading(self.current_data)
 
             life_data = calculate_life_expectancy(self.current_data)
             predictions = generate_predictions(self.current_data)
@@ -920,7 +1058,20 @@ class TransformerMonitor:
         
         for alert in alerts:
             self.alerts.append(alert)
+            save_alert(alert)
             socketio.emit('new_alert', alert)
+            # Send email for critical/emergency alerts
+            if alert['type'] in ('emergency', 'critical'):
+                send_email_alert(
+                    f"🚨 Transformer Alert: {alert['type'].upper()}",
+                    f"<h2>{alert['message']}</h2>"
+                    f"<p><b>Time:</b> {alert['timestamp']}</p>"
+                    f"<hr><p><b>Temperature:</b> {temp:.1f}°C</p>"
+                    f"<p><b>Current:</b> {current:.1f}A</p>"
+                    f"<p><b>Health:</b> {health}</p>"
+                    f"<p><b>Humidity:</b> {humidity:.0f}%</p>"
+                    f"<hr><p><small>Transformer Health Monitoring System</small></p>"
+                )
 
 # ============================================
 # FLASK API ENDPOINTS
@@ -1042,6 +1193,167 @@ def upload_mock_endpoint():
     })
 
 # ============================================
+# DATABASE HISTORY ENDPOINT
+# ============================================
+
+@app.route('/api/history/db')
+def get_history_db():
+    limit = request.args.get('limit', 100, type=int)
+    rows = get_readings_from_db(limit)
+    return jsonify({'success': True, 'data': rows})
+
+@app.route('/api/alerts/db')
+def get_alerts_db():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 50").fetchall()
+        conn.close()
+        alerts = [{'id': r[0], 'timestamp': r[1], 'type': r[2], 'message': r[3]} for r in rows]
+        return jsonify({'success': True, 'alerts': alerts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ============================================
+# PDF REPORT GENERATION
+# ============================================
+
+@app.route('/api/report')
+def generate_report():
+    try:
+        from fpdf import FPDF
+
+        data = monitor.current_data
+        life = calculate_life_expectancy(data)
+        preds = generate_predictions(data)
+        readings = get_readings_from_db(20)
+
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.cell(0, 12, "Transformer Health Report", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+        pdf.set_font("Helvetica", "", 9)
+        pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(6)
+
+        # Health Summary
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_fill_color(16, 185, 129)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 9, "  HEALTH SUMMARY", fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+
+        flame = data.get('flame', False)
+        status = data.get('health_status', 'Unknown')
+        conf = data.get('health_confidence', 0)
+
+        if flame:
+            status_color = (239, 68, 68)
+        elif status == 'Healthy':
+            status_color = (16, 185, 129)
+        elif status == 'Monitor':
+            status_color = (245, 158, 11)
+        elif status == 'Warning':
+            status_color = (249, 115, 22)
+        else:
+            status_color = (239, 68, 68)
+
+        pdf.set_font("Helvetica", "B", 22)
+        pdf.set_text_color(*status_color)
+        label = "🔥 FIRE DETECTED!" if flame else f"{status} ({conf:.0f}%)"
+        pdf.cell(0, 14, f"  {label}", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(4)
+
+        # Sensor Readings Table
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_fill_color(59, 130, 246)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 9, "  CURRENT READINGS", fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+
+        def row(label, value, unit):
+            pdf.set_font("Helvetica", "", 10)
+            pdf.cell(80, 7, f"  {label}", border=1)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(0, 7, f"{value} {unit}", border=1, new_x="LMARGIN", new_y="NEXT")
+
+        row("Primary Current", f"{data.get('primary_current', 0):.1f}", "A")
+        row("Primary Voltage", f"{data.get('primary_voltage', 230):.1f}", "V")
+        row("Primary Power", f"{data.get('primary_power_kw', 0):.2f}", "kW")
+        row("Power Factor", f"{data.get('primary_pf', 0):.3f}", "")
+        row("Secondary Current", f"{data.get('secondary_current', 0):.1f}", "A")
+        row("Secondary Voltage", f"{data.get('secondary_voltage', 19):.2f}", "V")
+        row("Temperature", f"{data.get('temperature', 27):.1f}", "C")
+        row("Humidity", f"{data.get('humidity', 45):.1f}", "%")
+        row("Efficiency", f"{data.get('efficiency', 85):.1f}", "%")
+        row("Health Confidence", f"{conf:.1f}", "%")
+        pdf.ln(4)
+
+        # Faults
+        faults = []
+        if data.get('fault_overcurrent'): faults.append("Overcurrent")
+        if data.get('fault_overtemp'): faults.append("Overtemp")
+        if data.get('flame'): faults.append("FIRE")
+        fault_str = ", ".join(faults) if faults else "None"
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(80, 7, "  Active Faults:", border=1)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, f"  {fault_str}", border=1, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+        # Life Expectancy
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_fill_color(139, 92, 246)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 9, "  LIFE EXPECTANCY", fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+        row("Health Score", f"{life.get('health_score', 0):.1f}", "%")
+        row("Remaining Life", f"{life.get('remaining_years', 0):.1f}", "years")
+        row("Degradation Rate", f"{life.get('degradation_rate', 0):.1f}", "%")
+        row("Est. Failure", life.get('estimated_failure_date', 'N/A'), "")
+        pdf.ln(4)
+
+        # Predictions
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_fill_color(245, 158, 11)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 9, "  FUTURE PREDICTIONS", fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+        for p in preds:
+            row(f"{p['months']} Month{'s' if p['months'] > 1 else ''}",
+                f"{p['projected_health_score']:.0f}% - {p['projected_status']}", "")
+        pdf.ln(4)
+
+        # Recent History
+        if readings:
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.set_fill_color(107, 114, 128)
+            pdf.set_text_color(255, 255, 255)
+            pdf.cell(0, 9, "  RECENT HISTORY (last 20 readings)", fill=True, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Helvetica", "", 7)
+            for r in reversed(readings):
+                pdf.cell(0, 4,
+                    f"  {r.get('timestamp','')[:19]}  |  I={r.get('primary_current',0):.1f}A  "
+                    f"T={r.get('temperature',0):.0f}C  H={r.get('humidity',0):.0f}%  "
+                    f"Status={r.get('health_status','')}",
+                    new_x="LMARGIN", new_y="NEXT")
+
+        # Output PDF as response
+        pdf_bytes = pdf.output()
+        response = app.response_class(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename=transformer_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'}
+        )
+        return response
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ============================================
 # SIMULATION MODE (for development only)
 # ============================================
 
@@ -1107,6 +1419,7 @@ def simulate_data():
         monitor.generate_recommendations()
         monitor.check_alerts()
         monitor.data_history.append(mock_data.copy())
+        save_reading(mock_data)
         
         life_data = calculate_life_expectancy(monitor.current_data)
         predictions = generate_predictions(monitor.current_data)
@@ -1148,6 +1461,7 @@ if __name__ == '__main__':
     print("   - Elevated: 85-105°C")
     print("   - High: 105-130°C")
     print("   - Critical: 130-180°C")
+    init_db()
     print("\n📡 Mode: Receiving data from HARDWARE via HTTP endpoint")
     print("   POST sensor data to: /api/upload")
     
