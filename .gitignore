@@ -1,8 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
-*.h5
-*.pkl
+# *.h5 and *.pkl are tracked (needed for CNN model)
 *.env
 .env
 venv/

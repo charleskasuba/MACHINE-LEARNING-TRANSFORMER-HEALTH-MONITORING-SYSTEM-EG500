@@ -17,12 +17,7 @@ import warnings
 import joblib
 import os
 import requests
-try:
-    from tensorflow.keras.models import load_model
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
-    load_model = None
+from tensorflow.keras.models import load_model
 
 warnings.filterwarnings('ignore')
 
@@ -74,17 +69,14 @@ class CNNHealthPredictor:
         ]
         
         # Load model
-        if not TENSORFLOW_AVAILABLE:
-            print("⚠️ TensorFlow not available - CNN model cannot be loaded")
-        else:
-            for path in model_paths:
-                if os.path.exists(path):
-                    try:
-                        self.model = load_model(path)
-                        print(f"✓ CNN Model loaded from: {path}")
-                        break
-                    except Exception as e:
-                        print(f"⚠️ Failed to load {path}: {e}")
+        for path in model_paths:
+            if os.path.exists(path):
+                try:
+                    self.model = load_model(path)
+                    print(f"✓ CNN Model loaded from: {path}")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Failed to load {path}: {e}")
         
         # Load scaler
         for path in scaler_paths:
