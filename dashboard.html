@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Zambia Transformer Health AI | CNN Live Monitor</title>
+    
+    <!-- Mapbox CSS & JS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.5.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mapbox-gl@3.5.0/dist/mapbox-gl.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #ffffff;
+            color: #1e293b;
+            overflow-x: hidden;
+        }
+        
+        .header {
+            background: #ffffff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            padding: 0.9rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .logo h1 {
+            font-size: 1rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e293b, #334155);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 1.5rem auto;
+            padding: 0 1.5rem;
+        }
+        
+        /* Health Score Card */
+        .health-card {
+            background: #f8fafc;
+            border-radius: 24px;
+            padding: 1.5rem;
+            margin-bottom: 1.8rem;
+            border: 2px solid #e2e8f0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            transition: all 0.3s;
+        }
+        
+        .health-card.fire-emergency {
+            border: 2px solid #ef4444;
+            background: #fef2f2;
+            animation: pulse-red 1s infinite;
+        }
+        
+        @keyframes pulse-red {
+            0%, 100% { border-color: #ef4444; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2); }
+            50% { border-color: #dc2626; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.4); }
+        }
+        
+        .health-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .health-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        
+        .health-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .health-stat {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 0.8rem;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .health-stat-label {
+            font-size: 0.65rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .health-stat-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-top: 0.3rem;
+            color: #1e293b;
+        }
+        
+        .health-score-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, #10b981 0deg, #e2e8f0 0deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .health-score-inner {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        
+        .health-score-num {
+            font-size: 2rem;
+            font-weight: 800;
+        }
+        
+        .health-score-label {
+            font-size: 0.7rem;
+            color: #64748b;
+        }
+        
+        /* Predictions Section */
+        .predictions-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.8rem;
+        }
+        
+        .prediction-card {
+            background: #f8fafc;
+            border-radius: 20px;
+            padding: 1rem 0.6rem;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+            transition: all 0.25s ease;
+        }
+        
+        .prediction-card:hover {
+            transform: translateY(-5px);
+            border-color: #cbd5e1;
+            background: #f1f5f9;
+        }
+        
+        .prediction-card.fire-prediction {
+            background: #fef2f2;
+            border-color: #ef4444;
+            animation: pulseRed 1.2s infinite;
+        }
+        
+        @keyframes pulseRed {
+            0% { border-color: #ef4444; box-shadow: 0 0 0 0 rgba(239,68,68,0.2);}
+            100% { border-color: #b91c1c; box-shadow: 0 0 0 4px rgba(239,68,68,0);}
+        }
+        
+        .prediction-month {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #475569;
+        }
+        
+        .prediction-score {
+            font-size: 1.8rem;
+            font-weight: 800;
+            margin: 0.4rem 0;
+            color: #1e293b;
+        }
+        
+        .prediction-status {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.7rem;
+            border-radius: 40px;
+            display: inline-block;
+            font-weight: 600;
+        }
+        
+        .status-healthy { background: #10b981; color: white; }
+        .status-monitor { background: #f59e0b; color: white; }
+        .status-warning { background: #f97316; color: white; }
+        .status-critical { background: #ef4444; color: white; }
+        .status-failure { background: #7f1a1a; color: white; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 1rem 0 0.8rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            color: #1e293b;
+            border-left: 4px solid #10b981;
+            padding-left: 1rem;
+        }
+        
+        .stat-card {
+            background: #f8fafc;
+            border-radius: 20px;
+            padding: 1rem;
+            transition: all 0.2s;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .stat-card:hover {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+        
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-header i {
+            font-size: 1.4rem;
+            color: #64748b;
+        }
+        
+        .stat-title {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+        }
+        
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #1e293b;
+            margin: 0.2rem 0;
+        }
+        
+        .stat-unit {
+            font-size: 0.65rem;
+            color: #64748b;
+        }
+        
+        /* Color status classes for parameters */
+        .value-normal {
+            color: #10b981 !important;
+        }
+        
+        .value-attention {
+            color: #94a3b8 !important;
+        }
+        
+        .value-abnormal {
+            color: #ef4444 !important;
+        }
+        
+        .value-warning {
+            color: #f59e0b !important;
+        }
+        
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.2rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .map-container {
+            background: #ffffff;
+            border-radius: 24px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .map-header {
+            padding: 0.8rem 1rem;
+            background: #f8fafc;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-bottom: 1px solid #e2e8f0;
+            color: #1e293b;
+        }
+        
+        #map {
+            height: 300px;
+            width: 100%;
+        }
+        
+        .chart-container {
+            background: #ffffff;
+            border-radius: 24px;
+            padding: 1rem;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .chart-title {
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+            color: #1e293b;
+        }
+        
+        .recommendations-container {
+            background: #f8fafc;
+            border-radius: 24px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            max-height: 350px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .recommendation-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 0.8rem;
+            margin-bottom: 0.8rem;
+            border-left: 4px solid;
+        }
+        
+        .recommendation-card.emergency { border-left-color: #dc2626; background: #fef2f2; }
+        .recommendation-card.critical { border-left-color: #ef4444; background: #fef2f2; }
+        .recommendation-card.warning { border-left-color: #f59e0b; background: #fffbeb; }
+        .recommendation-card.monitor { border-left-color: #3b82f6; background: #eff6ff; }
+        .recommendation-card.normal { border-left-color: #10b981; background: #ecfdf5; }
+        
+        .recommendation-actions {
+            list-style: none;
+            margin-top: 0.5rem;
+        }
+        
+        .recommendation-actions li {
+            font-size: 0.7rem;
+            color: #475569;
+            padding: 0.15rem 0;
+            padding-left: 1rem;
+            position: relative;
+        }
+        
+        .recommendation-actions li:before {
+            content: "▹";
+            position: absolute;
+            left: 0;
+            color: #10b981;
+        }
+        
+        .priority-badge {
+            display: inline-block;
+            padding: 0.15rem 0.55rem;
+            border-radius: 40px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            margin-left: 0.5rem;
+        }
+        
+        .priority-high { background: #dc2626; color: white; }
+        .priority-medium { background: #f59e0b; color: white; }
+        .priority-low { background: #10b981; color: white; }
+        
+        .alerts-container {
+            background: #f8fafc;
+            border-radius: 24px;
+            padding: 1rem;
+            max-height: 220px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .alert-item {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 0.6rem;
+            margin-bottom: 0.6rem;
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .alert-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .alert-icon.critical { background: #dc2626; }
+        .alert-icon.emergency { background: #991b1b; animation: pulse 1s infinite; }
+        .alert-icon.warning { background: #f59e0b; }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        .fault-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 0.5rem;
+        }
+        
+        .fault-active {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            animation: blinkWarning 0.9s infinite;
+        }
+        
+        @keyframes blinkWarning {
+            0%,100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .badge {
+            padding: 0.35rem 0.9rem;
+            border-radius: 40px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        
+        .badge.online { background: #10b981; color: white; }
+        .badge.offline { background: #ef4444; color: white; }
+        .badge.cnn { background: #8b5cf6; color: white; }
+        
+        .cnn-badge {
+            font-size: 0.6rem;
+            background: #8b5cf6;
+            padding: 0.15rem 0.6rem;
+            border-radius: 40px;
+            margin-left: 0.5rem;
+            color: white;
+        }
+        
+        /* Chatbot Styles */
+        .chatbot-container {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 1000;
+        }
+        
+        .chatbot-toggle {
+            width: 55px;
+            height: 55px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+            transition: transform 0.3s;
+        }
+        
+        .chatbot-toggle:hover {
+            transform: scale(1.1);
+        }
+        
+        .chatbot-toggle i {
+            font-size: 1.4rem;
+            color: white;
+        }
+        
+        .chatbot-window {
+            position: absolute;
+            bottom: 70px;
+            right: 0;
+            width: 350px;
+            height: 500px;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .chatbot-window.active {
+            display: flex;
+        }
+        
+        .chatbot-header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 0.8rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .chatbot-messages {
+            flex: 1;
+            padding: 0.8rem;
+            overflow-y: auto;
+            background: #f8fafc;
+        }
+        
+        .message {
+            margin-bottom: 0.8rem;
+            display: flex;
+        }
+        
+        .message.user {
+            justify-content: flex-end;
+        }
+        
+        .message-content {
+            max-width: 85%;
+            padding: 0.5rem 0.9rem;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            line-height: 1.4;
+        }
+        
+        .message.bot .message-content {
+            background: #ffffff;
+            color: #1e293b;
+            border-bottom-left-radius: 4px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .message.user .message-content {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .chatbot-input {
+            padding: 0.8rem;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            gap: 0.5rem;
+            background: #ffffff;
+        }
+        
+        .chatbot-input input {
+            flex: 1;
+            padding: 0.5rem;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            outline: none;
+            color: #1e293b;
+            font-size: 0.75rem;
+        }
+        
+        .chatbot-input input:focus {
+            border-color: #10b981;
+        }
+        
+        .chatbot-input button {
+            padding: 0.5rem 0.9rem;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        
+        .suggestion-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            padding: 0.5rem;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        
+        .suggestion-btn {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 15px;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.6rem;
+            color: #475569;
+            cursor: pointer;
+        }
+        
+        .suggestion-btn:hover {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+        }
+        
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 0.5rem 0.9rem;
+            background: #ffffff;
+            border-radius: 15px;
+            width: fit-content;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .typing-indicator span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: typing 1.4s infinite;
+        }
+        
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+        
+        @media (max-width: 900px) {
+            .predictions-container { grid-template-columns: repeat(2,1fr); }
+            .two-column { grid-template-columns: 1fr; }
+            .health-stats { grid-template-columns: repeat(2,1fr); }
+            .dashboard-container { padding: 0 1rem; }
+            .chatbot-window { width: 300px; right: -20px; }
+        }
+        
+        .loading-spinner {
+            text-align: center;
+            padding: 1rem;
+            color: #64748b;
+        }
+        
+        /* Status colors for value elements */
+        .value-normal {
+            color: #10b981 !important;
+        }
+        
+        .value-attention {
+            color: #94a3b8 !important;
+        }
+        
+        .value-abnormal {
+            color: #ef4444 !important;
+        }
+        
+        .value-warning {
+            color: #f59e0b !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">
+                <h1><i class="fas fa-microchip"></i> AI Transformer Health Monitor | Developed by kasuba, chongo, mwewa & mwape</h1>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <div class="badge online" id="connectionStatus"><i class="fas fa-circle"></i> Connected</div>
+                <div class="badge cnn" id="cnnStatus"><i class="fas fa-brain"></i> CNN Active</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="dashboard-container">
+        <!-- HEALTH SCORE CARD -->
+        <div class="health-card" id="healthCard">
+            <div class="health-header">
+                <div class="health-title"><i class="fas fa-heartbeat"></i> TRANSFORMER HEALTH METRICS</div>
+                <div id="healthScoreCircle">
+                    <div class="health-score-circle">
+                        <div class="health-score-inner">
+                            <div class="health-score-num" id="healthScoreNum">--</div>
+                            <div class="health-score-label">Health Score</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="health-stats">
+                <div class="health-stat">
+                    <div class="health-stat-label">Aging Factor</div>
+                    <div class="health-stat-value" id="agingFactor">--x</div>
+                </div>
+                <div class="health-stat">
+                    <div class="health-stat-label">Degradation Rate</div>
+                    <div class="health-stat-value" id="degradationRate">--%</div>
+                </div>
+                <div class="health-stat">
+                    <div class="health-stat-label">Confidence</div>
+                    <div class="health-stat-value" id="confidenceLife">--%</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PREDICTIONS SECTION -->
+        <div class="section-title"><i class="fas fa-chart-line"></i> FUTURE PREDICTIONS (Based on Current Degradation)</div>
+        <div class="predictions-container" id="predictionsContainer">
+            <div class="prediction-card" id="pred1Card"><div class="prediction-month">1 Month</div><div class="prediction-score" id="pred1Score">--</div><div><span class="prediction-status" id="pred1Status">--</span></div><div style="font-size:0.6rem; margin-top:0.4rem;" id="pred1Rec">--</div></div>
+            <div class="prediction-card" id="pred3Card"><div class="prediction-month">3 Months</div><div class="prediction-score" id="pred3Score">--</div><div><span class="prediction-status" id="pred3Status">--</span></div><div style="font-size:0.6rem; margin-top:0.4rem;" id="pred3Rec">--</div></div>
+            <div class="prediction-card" id="pred6Card"><div class="prediction-month">6 Months</div><div class="prediction-score" id="pred6Score">--</div><div><span class="prediction-status" id="pred6Status">--</span></div><div style="font-size:0.6rem; margin-top:0.4rem;" id="pred6Rec">--</div></div>
+            <div class="prediction-card" id="pred12Card"><div class="prediction-month">12 Months</div><div class="prediction-score" id="pred12Score">--</div><div><span class="prediction-status" id="pred12Status">--</span></div><div style="font-size:0.6rem; margin-top:0.4rem;" id="pred12Rec">--</div></div>
+        </div>
+        
+        <!-- PRIMARY SIDE -->
+        <div class="section-title"><i class="fas fa-bolt"></i> PRIMARY SIDE</div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Primary Current</span><i class="fas fa-bolt"></i></div><div class="stat-value" id="primaryCurrent">0.00</div><div class="stat-unit">Amperes (A)</div><span class="fault-indicator" id="overcurrentFault"></span></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Primary Voltage</span><i class="fas fa-voltage"></i></div><div class="stat-value" id="primaryVoltage">230.0</div><div class="stat-unit">Volts (V)</div></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Primary Power</span><i class="fas fa-plug"></i></div><div class="stat-value" id="primaryPower">0.00</div><div class="stat-unit">kW</div></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Power Factor</span><i class="fas fa-chart-simple"></i></div><div class="stat-value" id="primaryPF">0.00</div><div class="stat-unit">PF</div></div>
+        </div>
+        
+        <!-- SECONDARY SIDE -->
+        <div class="section-title"><i class="fas fa-exchange-alt"></i> SECONDARY SIDE</div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Secondary Current</span><i class="fas fa-bolt"></i></div><div class="stat-value" id="secondaryCurrent">0.00</div><div class="stat-unit">Amperes (A)</div></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Secondary Voltage</span><i class="fas fa-voltage"></i></div><div class="stat-value" id="secondaryVoltage">0.00</div><div class="stat-unit">Volts (V)</div></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Secondary Power</span><i class="fas fa-plug"></i></div><div class="stat-value" id="secondaryPower">0.00</div><div class="stat-unit">kW</div></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Secondary PF</span><i class="fas fa-chart-simple"></i></div><div class="stat-value" id="secondaryPF">0.00</div><div class="stat-unit">PF</div></div>
+        </div>
+        
+        <!-- ENVIRONMENT & STATUS -->
+        <div class="section-title"><i class="fas fa-leaf"></i> ENVIRONMENT & STATUS</div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Temperature</span><i class="fas fa-thermometer-half"></i></div><div class="stat-value" id="temperature">0.0</div><div class="stat-unit">°C</div><span class="fault-indicator" id="overtempFault"></span></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Humidity</span><i class="fas fa-tint"></i></div><div class="stat-value" id="humidity">0.0</div><div class="stat-unit">%</div><span class="fault-indicator" id="humidityFault"></span></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Efficiency</span><i class="fas fa-chart-line"></i></div><div class="stat-value" id="efficiency">0.0</div><div class="stat-unit">%</div></div>
+            <div class="stat-card"><div class="stat-header"><span class="stat-title">Flame Sensor</span><i class="fas fa-fire"></i></div><div class="stat-value" id="flameStatus">NORMAL</div><div class="stat-unit">Fire Detection</div></div>
+        </div>
+        
+        <!-- Map and Chart -->
+        <div class="two-column">
+            <div class="map-container">
+                <div class="map-header"><i class="fas fa-map-marker-alt"></i> 📍 Transformer Location - Your Current Location</div>
+                <div id="map"></div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title"><i class="fas fa-chart-line"></i> Real-time Trends (Last 30 readings)</div>
+                <canvas id="trendChart" style="height:240px; width:100%;"></canvas>
+            </div>
+        </div>
+        
+        <!-- Recommendations -->
+        <div class="recommendations-container">
+            <div class="chart-title" style="display: flex; align-items:center; gap: 0.4rem;"><i class="fas fa-robot"></i> AI-POWERED RECOMMENDATIONS <span id="aiBadge" class="cnn-badge">CNN</span></div>
+            <div id="recommendationsList"><div class="loading-spinner"><i class="fas fa-spinner fa-pulse"></i> Loading...</div></div>
+        </div>
+        
+        <!-- Alerts -->
+        <div class="alerts-container">
+            <div class="chart-title"><i class="fas fa-bell"></i> LIVE ALERTS</div>
+            <div id="alertsList"><div style="text-align: center; color: #64748b;">No alerts</div></div>
+        </div>
+    </div>
+    
+    <!-- CHATBOT -->
+    <div class="chatbot-container">
+        <div class="chatbot-toggle" onclick="toggleChatbot()">
+            <i class="fas fa-robot"></i>
+        </div>
+        <div class="chatbot-window" id="chatbotWindow">
+            <div class="chatbot-header">
+                <i class="fas fa-robot"></i> AI Assistant
+            </div>
+            <div class="chatbot-messages" id="chatMessages">
+                <div class="message bot">
+                    <div class="message-content">
+                        👋 Hello! I'm your AI transformer assistant powered by CNN.<br><br>
+                        I can help you with:<br>
+                        • Current health status<br>
+                        • Future predictions<br>
+                        • Fault analysis<br>
+                        • Maintenance recommendations<br><br>
+                        Ask me anything about the transformer!
+                    </div>
+                </div>
+            </div>
+            <div class="suggestion-buttons">
+                <div class="suggestion-btn" onclick="sendSuggestion('health')">📊 Health Status</div>
+                <div class="suggestion-btn" onclick="sendSuggestion('current')">⚡ Current</div>
+                <div class="suggestion-btn" onclick="sendSuggestion('temp')">🌡️ Temperature</div>
+                <div class="suggestion-btn" onclick="sendSuggestion('humidity')">💧 Humidity</div>
+                <div class="suggestion-btn" onclick="sendSuggestion('recommend')">🔧 Recommendations</div>
+                <div class="suggestion-btn" onclick="sendSuggestion('prediction')">📈 6 Month Prediction</div>
+            </div>
+            <div class="chatbot-input">
+                <input type="text" id="chatInput" placeholder="Ask about transformer health..." onkeypress="handleChatKeypress(event)">
+                <button onclick="sendChatMessage()">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const socket = io();
+        let currentData = {};
+        let currentLifeData = {};
+        let currentPredictions = [];
+        let map = null;
+        let userMarker = null;
+        
+        // Function to apply color coding to stat values
+        function applyColorCoding(element, value, thresholds) {
+            // thresholds = { normal: [min,max], attention: [min,max], warning: [min,max], abnormal: condition }
+            if (value >= thresholds.normal.min && value <= thresholds.normal.max) {
+                element.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                element.classList.add('value-normal');
+            } else if (thresholds.attention && value >= thresholds.attention.min && value <= thresholds.attention.max) {
+                element.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                element.classList.add('value-attention');
+            } else if (thresholds.warning && value >= thresholds.warning.min && value <= thresholds.warning.max) {
+                element.classList.remove('value-normal', 'value-attention', 'value-abnormal');
+                element.classList.add('value-warning');
+            } else {
+                element.classList.remove('value-normal', 'value-attention', 'value-warning');
+                element.classList.add('value-abnormal');
+            }
+        }
+        
+        function updateDashboard(d) {
+            currentData = d;
+            
+            // Primary Current (normal: <30A, attention: 30-40A, abnormal: >40A)
+            let currentVal = d.primary_current || 0;
+            let currentElem = document.getElementById('primaryCurrent');
+            currentElem.innerHTML = currentVal.toFixed(2);
+            if (currentVal < 30) {
+                currentElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                currentElem.classList.add('value-normal');
+            } else if (currentVal >= 30 && currentVal <= 40) {
+                currentElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                currentElem.classList.add('value-attention');
+            } else {
+                currentElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                currentElem.classList.add('value-abnormal');
+            }
+            
+            // Primary Voltage (normal: 220-245V, attention: 200-215 or 245-260, abnormal: <200 or >300)
+            let voltageVal = d.primary_voltage || 230;
+            let voltageElem = document.getElementById('primaryVoltage');
+            voltageElem.innerHTML = voltageVal.toFixed(1);
+            if (voltageVal >= 215 && voltageVal <= 245) {
+                voltageElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                voltageElem.classList.add('value-normal');
+            } else if ((voltageVal >= 200 && voltageVal < 215) || (voltageVal > 245 && voltageVal <= 300)) {
+                voltageElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                voltageElem.classList.add('value-attention');
+            } else {
+                voltageElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                voltageElem.classList.add('value-abnormal');
+            }
+            
+            // Primary Power (calculated, use percentage of rated)
+            let powerVal = d.primary_power_kw || 0;
+            let powerElem = document.getElementById('primaryPower');
+            powerElem.innerHTML = powerVal.toFixed(2);
+            if (powerVal < 6) {
+                powerElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                powerElem.classList.add('value-normal');
+            } else if (powerVal >= 6 && powerVal <= 8) {
+                powerElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                powerElem.classList.add('value-attention');
+            } else {
+                powerElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                powerElem.classList.add('value-abnormal');
+            }
+            
+            // Power Factor (normal: >0.85, attention: 0.75-0.85, abnormal: <0.75)
+            let pfVal = d.primary_pf || 0.85;
+            let pfElem = document.getElementById('primaryPF');
+            pfElem.innerHTML = pfVal.toFixed(3);
+            if (pfVal >= 0.85) {
+                pfElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                pfElem.classList.add('value-normal');
+            } else if (pfVal >= 0.75 && pfVal < 0.85) {
+                pfElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                pfElem.classList.add('value-attention');
+            } else {
+                pfElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                pfElem.classList.add('value-abnormal');
+            }
+            
+            // Secondary Current
+            let secCurrentVal = d.secondary_current || 0;
+            let secCurrentElem = document.getElementById('secondaryCurrent');
+            secCurrentElem.innerHTML = secCurrentVal.toFixed(2);
+            if (secCurrentVal < 80) {
+                secCurrentElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                secCurrentElem.classList.add('value-normal');
+            } else if (secCurrentVal >= 80 && secCurrentVal <= 100) {
+                secCurrentElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                secCurrentElem.classList.add('value-attention');
+            } else {
+                secCurrentElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                secCurrentElem.classList.add('value-abnormal');
+            }
+            
+            // Secondary Voltage (normal: 18-21V)
+            let secVoltageVal = d.secondary_voltage || 19;
+            let secVoltageElem = document.getElementById('secondaryVoltage');
+            secVoltageElem.innerHTML = secVoltageVal.toFixed(2);
+            if (secVoltageVal >= 18 && secVoltageVal <= 21) {
+                secVoltageElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                secVoltageElem.classList.add('value-normal');
+            } else {
+                secVoltageElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                secVoltageElem.classList.add('value-abnormal');
+            }
+            
+            // Secondary Power
+            let secPowerVal = d.secondary_power_kw || 0;
+            let secPowerElem = document.getElementById('secondaryPower');
+            secPowerElem.innerHTML = secPowerVal.toFixed(2);
+            if (secPowerVal < 5) {
+                secPowerElem.classList.add('value-normal');
+            } else {
+                secPowerElem.classList.add('value-attention');
+            }
+            
+            // Secondary PF
+            let secPfVal = d.secondary_pf || 0.82;
+            let secPfElem = document.getElementById('secondaryPF');
+            secPfElem.innerHTML = secPfVal.toFixed(3);
+            if (secPfVal >= 0.8) {
+                secPfElem.classList.add('value-normal');
+            } else {
+                secPfElem.classList.add('value-attention');
+            }
+            
+            // Temperature (normal: <85, attention: 85-105, warning: 105-130, abnormal: >130)
+            let tempVal = d.temperature || 27;
+            let tempElem = document.getElementById('temperature');
+            tempElem.innerHTML = tempVal.toFixed(1);
+            if (tempVal < 85) {
+                tempElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                tempElem.classList.add('value-normal');
+            } else if (tempVal >= 85 && tempVal < 105) {
+                tempElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                tempElem.classList.add('value-attention');
+            } else if (tempVal >= 105 && tempVal <= 130) {
+                tempElem.classList.remove('value-normal', 'value-attention', 'value-abnormal');
+                tempElem.classList.add('value-warning');
+            } else {
+                tempElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                tempElem.classList.add('value-abnormal');
+            }
+            
+            // Humidity (normal: <60, attention: 60-75, abnormal: >75)
+            let humidVal = d.humidity || 45;
+            let humidElem = document.getElementById('humidity');
+            humidElem.innerHTML = humidVal.toFixed(1);
+            if (humidVal < 60) {
+                humidElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                humidElem.classList.add('value-normal');
+            } else if (humidVal >= 60 && humidVal <= 75) {
+                humidElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                humidElem.classList.add('value-attention');
+            } else {
+                humidElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                humidElem.classList.add('value-abnormal');
+            }
+            
+            // Efficiency (normal: >90, attention: 80-90, abnormal: <79)
+            let effVal = d.efficiency || 80;
+            let effElem = document.getElementById('efficiency');
+            effElem.innerHTML = effVal.toFixed(1);
+            if (effVal >= 90) {
+                effElem.classList.remove('value-attention', 'value-warning', 'value-abnormal');
+                effElem.classList.add('value-normal');
+            } else if (effVal >= 80 && effVal < 90) {
+                effElem.classList.remove('value-normal', 'value-warning', 'value-abnormal');
+                effElem.classList.add('value-attention');
+            } else {
+                effElem.classList.remove('value-normal', 'value-attention', 'value-warning');
+                effElem.classList.add('value-abnormal');
+            }
+            
+            const flame = d.flame;
+            const flameEl = document.getElementById('flameStatus');
+            if (flame) {
+                flameEl.innerHTML = '🔥🔥🔥 FIRE DETECTED! 🔥🔥🔥';
+                flameEl.style.color = '#ef4444';
+                flameEl.style.fontWeight = 'bold';
+                flameEl.style.animation = 'pulse 1s infinite';
+            } else {
+                flameEl.innerHTML = 'NORMAL';
+                flameEl.style.color = '#10b981';
+                flameEl.style.animation = 'none';
+            }
+            
+            document.getElementById('overcurrentFault').className = d.fault_overcurrent ? 'fault-indicator fault-active' : 'fault-indicator';
+            document.getElementById('overtempFault').className = d.fault_overtemp ? 'fault-indicator fault-active' : 'fault-indicator';
+            document.getElementById('humidityFault').className = humidVal > 80 ? 'fault-indicator fault-active' : 'fault-indicator';
+            
+            const now = new Date().toLocaleTimeString();
+            if (trendChart.data.labels.length > 30) {
+                trendChart.data.labels.shift();
+                trendChart.data.datasets[0].data.shift();
+                trendChart.data.datasets[1].data.shift();
+                trendChart.data.datasets[2].data.shift();
+            }
+            trendChart.data.labels.push(now);
+            trendChart.data.datasets[0].data.push(d.primary_current || 0);
+            trendChart.data.datasets[1].data.push(d.temperature || 27);
+            trendChart.data.datasets[2].data.push(humidVal);
+            trendChart.update();
+        }
+        
+        function updateHealthMetrics(life) {
+            if (!life) return;
+            currentLifeData = life;
+            const flame = currentData?.flame || false;
+            const healthScore = life.health_score || 0;
+            
+            const healthCard = document.getElementById('healthCard');
+            if (flame) {
+                healthCard.classList.add('fire-emergency');
+            } else {
+                healthCard.classList.remove('fire-emergency');
+            }
+            
+            document.getElementById('agingFactor').innerHTML = life.aging_factor + 'x';
+            document.getElementById('degradationRate').innerHTML = life.degradation_rate + '%';
+            document.getElementById('confidenceLife').innerHTML = life.confidence + '%';
+            document.getElementById('healthScoreNum').innerHTML = flame ? '0' : healthScore.toFixed(0);
+            
+            const score = flame ? 0 : healthScore;
+            const color = score >= 85 ? '#10b981' : (score >= 70 ? '#f59e0b' : (score >= 50 ? '#f97316' : '#ef4444'));
+            const angle = (score / 100) * 360;
+            document.querySelector('.health-score-circle').style.background = `conic-gradient(from 0deg, ${color} 0deg, ${color} ${angle}deg, #e2e8f0 ${angle}deg)`;
+        }
+        
+        function updatePredictions(preds) {
+            if (!preds) return;
+            currentPredictions = preds;
+            const mapMonths = {1:'pred1',3:'pred3',6:'pred6',12:'pred12'};
+            const cardMap = {1:'pred1Card',3:'pred3Card',6:'pred6Card',12:'pred12Card'};
+            const flame = currentData?.flame || false;
+            
+            for (let p of preds) {
+                let prefix = mapMonths[p.months];
+                if (prefix) {
+                    let score = flame ? 0 : (p.projected_health_score || 0);
+                    document.getElementById(prefix+'Score').innerHTML = Math.round(score);
+                    let status = flame ? 'Failure' : (p.projected_status || 'Unknown');
+                    let statusEl = document.getElementById(prefix+'Status');
+                    statusEl.innerHTML = status;
+                    let cls = 'prediction-status ';
+                    if (status === 'Healthy') cls += 'status-healthy';
+                    else if (status === 'Monitor') cls += 'status-monitor';
+                    else if (status === 'Warning') cls += 'status-warning';
+                    else if (status === 'Critical') cls += 'status-critical';
+                    else cls += 'status-failure';
+                    statusEl.className = cls;
+                    let recMsg = flame ? '🔥 FIRE! Immediate action required!' : (p.recommendation || '');
+                    document.getElementById(prefix+'Rec').innerHTML = recMsg.substring(0, 70);
+                    if (flame) document.getElementById(cardMap[p.months]).classList.add('fire-prediction');
+                    else document.getElementById(cardMap[p.months]).classList.remove('fire-prediction');
+                }
+            }
+        }
+        
+        function updateRecommendations(recommendations) {
+            const container = document.getElementById('recommendationsList');
+            if (!recommendations || recommendations.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #64748b;">No recommendations at this time</div>';
+                return;
+            }
+            let html = '';
+            for (let rec of recommendations) {
+                let priorityClass = rec.priority === 'CRITICAL' ? 'priority-high' : (rec.priority === 'HIGH' ? 'priority-high' : (rec.priority === 'MEDIUM' ? 'priority-medium' : 'priority-low'));
+                html += `<div class="recommendation-card ${rec.type}">
+                            <div><strong>${rec.message}</strong> <span class="priority-badge ${priorityClass}">${rec.priority}</span></div>
+                            <ul class="recommendation-actions">${rec.actions.map(a => `<li>${a}</li>`).join('')}</ul>
+                         </div>`;
+            }
+            container.innerHTML = html;
+        }
+        
+        function addAlert(alert) {
+            const container = document.getElementById('alertsList');
+            if (container.children.length === 1 && container.children[0].innerText === 'No alerts') {
+                container.innerHTML = '';
+            }
+            let iconType = alert.type === 'critical' ? 'critical' : (alert.type === 'emergency' ? 'emergency' : 'warning');
+            let icon = alert.type === 'emergency' ? 'fa-skull-crosswalk' : (alert.type === 'critical' ? 'fa-exclamation-triangle' : 'fa-bell');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert-item';
+            alertDiv.innerHTML = `<div class="alert-icon ${iconType}"><i class="fas ${icon}"></i></div>
+                                  <div><div><strong>${alert.message}</strong></div><div style="font-size:0.7rem; color:#64748b;">${alert.timestamp}</div></div>`;
+            container.insertBefore(alertDiv, container.firstChild);
+            while (container.children.length > 20) container.removeChild(container.lastChild);
+        }
+        
+        // Chatbot Functions
+        function toggleChatbot() { document.getElementById('chatbotWindow').classList.toggle('active'); }
+        function handleChatKeypress(event) { if (event.key === 'Enter') sendChatMessage(); }
+        
+        function sendSuggestion(type) {
+            let message = '';
+            switch(type) {
+                case 'health': message = 'What is the current health status?'; break;
+                case 'current': message = 'What is the current reading?'; break;
+                case 'temp': message = 'What is the temperature?'; break;
+                case 'humidity': message = 'What is the humidity level?'; break;
+                case 'recommend': message = 'What maintenance recommendations do you have?'; break;
+                case 'prediction': message = 'What will be the condition in 6 months?'; break;
+                default: message = type;
+            }
+            document.getElementById('chatInput').value = message;
+            sendChatMessage();
+        }
+        
+        async function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            if (!message) return;
+            addChatMessage(message, 'user');
+            input.value = '';
+            showTypingIndicator();
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                const data = await response.json();
+                hideTypingIndicator();
+                addChatMessage(data.response, 'bot');
+            } catch (error) {
+                hideTypingIndicator();
+                addChatMessage('Sorry, I encountered an error. Please try again.', 'bot');
+            }
+        }
+        
+        function showTypingIndicator() {
+            const messagesDiv = document.getElementById('chatMessages');
+            const typingDiv = document.createElement('div');
+            typingDiv.id = 'typingIndicator';
+            typingDiv.className = 'message bot';
+            typingDiv.innerHTML = `<div class="typing-indicator"><span></span><span></span><span></span></div>`;
+            messagesDiv.appendChild(typingDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+        
+        function addChatMessage(text, sender) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+            messageDiv.innerHTML = `<div class="message-content">${text.replace(/\n/g, '<br>')}</div>`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // Initialize Map with user's location
+        async function initMapWithUserLocation() {
+            try {
+                const configRes = await fetch('/api/config');
+                const configData = await configRes.json();
+                mapboxgl.accessToken = configData.mapbox_token || '';
+            } catch(e) {
+                console.warn('Failed to fetch Mapbox token', e);
+                mapboxgl.accessToken = '';
+            }
+            
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLng = position.coords.longitude;
+                        map = new mapboxgl.Map({
+                            container: 'map',
+                            style: 'mapbox://styles/mapbox/satellite-v9',
+                            center: [userLng, userLat],
+                            zoom: 15
+                        });
+                        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+                        map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+                        
+                        userMarker = new mapboxgl.Marker({ color: '#ef4444', scale: 1.3 })
+                            .setLngLat([userLng, userLat])
+                            .setPopup(new mapboxgl.Popup().setHTML(`
+                                <div style="padding: 8px;">
+                                    <h4 style="margin:0; color:#ef4444;">⚡ Transformer Station</h4>
+                                    <p style="margin:5px 0 0 0;">📍 Your Current Location</p>
+                                </div>
+                            `))
+                            .addTo(map);
+                    },
+                    (error) => {
+                        console.warn("Geolocation error, using default", error);
+                        map = new mapboxgl.Map({
+                            container: 'map',
+                            style: 'mapbox://styles/mapbox/satellite-v9',
+                            center: [28.0473, -15.3875],
+                            zoom: 13
+                        });
+                        map.addControl(new mapboxgl.NavigationControl());
+                        new mapboxgl.Marker({ color: '#3b82f6' })
+                            .setLngLat([28.0473, -15.3875])
+                            .setPopup(new mapboxgl.Popup().setHTML(`📍 Reference Location (Zambia)`))
+                            .addTo(map);
+                    }
+                );
+            } else {
+                map = new mapboxgl.Map({
+                    container: 'map',
+                    style: 'mapbox://styles/mapbox/satellite-v9',
+                    center: [28.0473, -15.3875],
+                    zoom: 13
+                });
+            }
+        }
+        
+        // Chart initialization
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        let trendChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'Current (A)', data: [], borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', tension: 0.4, fill: true, borderWidth: 2 },
+                { label: 'Temperature (°C)', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.05)', tension: 0.4, fill: true, borderWidth: 2 },
+                { label: 'Humidity (%)', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.05)', tension: 0.4, fill: true, borderWidth: 2 }
+            ] },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: '#1e293b' } } }, scales: { y: { grid: { color: '#e2e8f0' }, ticks: { color: '#1e293b' } }, x: { ticks: { color: '#64748b', maxRotation: 40 } } } }
+        });
+        
+        // Initial fetch
+        async function fetchInitialData() {
+            try {
+                const res = await fetch('/api/current-data');
+                const data = await res.json();
+                if (data.success) {
+                    if (data.current) updateDashboard(data.current);
+                    if (data.life_expectancy) updateHealthMetrics(data.life_expectancy);
+                    if (data.predictions) updatePredictions(data.predictions);
+                    if (data.cnn_loaded) document.getElementById('cnnStatus').innerHTML = '<i class="fas fa-brain"></i> CNN Active';
+                }
+            } catch(e) { console.error(e); }
+            try {
+                const recRes = await fetch('/api/recommendations');
+                const recData = await recRes.json();
+                if (recData.success && recData.recommendations) updateRecommendations(recData.recommendations);
+            } catch(e) {}
+            try {
+                const alertRes = await fetch('/api/alerts');
+                const alertData = await alertRes.json();
+                if (alertData.success && alertData.alerts) alertData.alerts.forEach(a => addAlert(a));
+            } catch(e) {}
+        }
+        
+        // Socket events
+        socket.on('connect', () => {
+            document.getElementById('connectionStatus').innerHTML = '<i class="fas fa-circle"></i> Connected';
+            document.getElementById('connectionStatus').className = 'badge online';
+        });
+        socket.on('disconnect', () => {
+            document.getElementById('connectionStatus').innerHTML = '<i class="fas fa-circle"></i> Disconnected';
+            document.getElementById('connectionStatus').className = 'badge offline';
+        });
+        socket.on('data_update', (data) => {
+            if (data.current) updateDashboard(data.current);
+            if (data.life_expectancy) updateHealthMetrics(data.life_expectancy);
+            if (data.predictions) updatePredictions(data.predictions);
+        });
+        socket.on('recommendations_update', (data) => { if (data.recommendations) updateRecommendations(data.recommendations); });
+        socket.on('new_alert', (alert) => addAlert(alert));
+        
+        window.addEventListener('load', () => {
+            initMapWithUserLocation();
+            fetchInitialData();
+        });
+    </script>
+</body>
+</html>
